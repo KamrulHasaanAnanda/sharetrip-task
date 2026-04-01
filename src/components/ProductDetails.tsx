@@ -7,6 +7,8 @@ function ProductDetails({ product }: { product: Product }) {
             <img
                 src={product?.imageUrl}
                 alt={product?.name}
+                loading="lazy"
+                decoding="async"
                 className="w-full h-[210px] object-cover rounded-t-[6px] rounded-b-[4px]"
             />
             <div className="p-2 flex flex-col gap-2">
