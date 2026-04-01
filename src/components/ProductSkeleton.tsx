@@ -1,5 +1,3 @@
-import React from 'react'
-
 function ProductSkeleton() {
     return (
         <div className="overflow-hidden flex flex-col min-w-[210px] animate-pulse">

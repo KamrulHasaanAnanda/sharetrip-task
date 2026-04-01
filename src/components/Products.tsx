@@ -1,5 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { RefreshCw, AlertTriangle } from 'lucide-react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../services/api';
 import type { Product } from '../types/product';
 import ProductDetails from './ProductDetails';
@@ -188,4 +187,4 @@ function Products({ category, search }: ProductsProps) {
     );
 }
 
-export default React.memo(Products)
+export default memo(Products)
