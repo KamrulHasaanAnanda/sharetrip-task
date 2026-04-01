@@ -66,31 +66,9 @@ function App() {
         </select>
       </section>
 
-      {/* Main Grid Placeholder */}
+
       <main>
-        {/* Placeholder state to visually guide candidate */}
-        {/* <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '4rem',
-          border: '1px dashed var(--border)',
-          borderRadius: '16px',
-        }}>
-           <Loader2 size={40} color="var(--primary)" className="spin" style={{ marginBottom: '1rem', animation: 'spin 2s linear infinite' }} />
-           <style>
-             {`
-               @keyframes spin {
-                 100% { transform: rotate(360deg); }
-               }
-             `}
-           </style>
-           <h2 style={{ marginBottom: '0.5rem' }}>Start Building Your Grid!</h2>
-           <p style={{ color: 'var(--text-muted)', textAlign: 'center', maxWidth: '500px' }}>
-             Use <code>src/services/api.ts</code> to fetch the products. Remember to build pagination and handle the network errors that the API frequently throws!
-           </p>
-        </div> */}
+
         <Products category={category || undefined} search={debouncedSearch || undefined} />
       </main>
     </div>

@@ -1,27 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { PackageOpen, RefreshCw, AlertTriangle } from 'lucide-react';
+import { RefreshCw, AlertTriangle } from 'lucide-react';
 import { api } from '../services/api';
 import type { Product } from '../types/product';
 import ProductDetails from './ProductDetails';
+import ProductSkeleton from './ProductSkeleton';
+import Empty from './Empty';
 
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 800;
 const PAGE_SIZE = 12;
-
-function ProductSkeleton() {
-    return (
-        <div className="overflow-hidden flex flex-col min-w-[210px] animate-pulse">
-            <div className="w-full h-[210px] bg-gray-200 rounded-t-[6px] rounded-b-[4px]" />
-            <div className="p-2 flex flex-col gap-2">
-                <div>
-                    <div className="h-4 w-20 bg-gray-200 rounded mb-1" />
-                    <div className="h-5 w-3/4 bg-gray-200 rounded" />
-                </div>
-                <div className="h-6 w-16 bg-gray-200 rounded" />
-            </div>
-        </div>
-    );
-}
 
 interface ProductsProps {
     category?: string;
@@ -60,7 +47,6 @@ function Products({ category, search }: ProductsProps) {
     const abortRef = useRef<AbortController | null>(null);
     const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-    // Reset & load page 1 whenever filters change
     const loadFirstPage = useCallback(async (cat?: string, srch?: string) => {
         abortRef.current?.abort();
         const controller = new AbortController();
@@ -91,7 +77,6 @@ function Products({ category, search }: ProductsProps) {
         }
     }, []);
 
-    // Append next page (triggered by IntersectionObserver)
     const loadNextPage = useCallback(async (nextPage: number, cat?: string, srch?: string) => {
         abortRef.current?.abort();
         const controller = new AbortController();
@@ -103,6 +88,7 @@ function Products({ category, search }: ProductsProps) {
         try {
             const response = await fetchPageWithRetry(nextPage, cat, srch, controller.signal);
             if (controller.signal.aborted) return;
+            console.log('response', response);
             setProducts(prev => [...prev, ...response.data]);
             setPage(nextPage);
             setTotalPages(response.totalPages);
@@ -176,28 +162,10 @@ function Products({ category, search }: ProductsProps) {
                 </div>
             )}
 
-            {/* Retrying indicator */}
-            {retrying && !error && (
-                <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
-                    <RefreshCw size={14} className="animate-spin" />
-                    Retrying…
-                </div>
-            )}
-
-            {/* Empty state */}
             {isEmpty && (
-                <div className="flex flex-col items-center justify-center py-24 text-center">
-                    <div className="flex items-center justify-center w-20 h-20 rounded-full bg-gray-100 mb-5">
-                        <PackageOpen size={36} className="text-gray-400" />
-                    </div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-1">No products found</h3>
-                    <p className="text-sm text-gray-500 max-w-xs">
-                        Try changing the category or adjusting your search terms.
-                    </p>
-                </div>
+                <Empty />
             )}
 
-            {/* Skeleton grid — initial load only */}
             {isInitialLoad && (
                 <div
                     className="grid w-full gap-6"
@@ -207,7 +175,6 @@ function Products({ category, search }: ProductsProps) {
                 </div>
             )}
 
-            {/* Product grid */}
             {hasProducts && (
                 <div
                     className="grid w-full gap-6"
@@ -224,10 +191,8 @@ function Products({ category, search }: ProductsProps) {
                 </div>
             )}
 
-            {/* Sentinel — observed to trigger next page load */}
             <div ref={sentinelRef} className="h-1" />
 
-            {/* End of results */}
             {hasProducts && !hasMore && !loading && !loadingMore && (
                 <p className="mt-8 text-center text-sm text-gray-400">
                     All {products.length} products loaded
