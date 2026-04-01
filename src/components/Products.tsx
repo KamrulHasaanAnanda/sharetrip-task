@@ -6,6 +6,7 @@ import ProductDetails from './ProductDetails';
 
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 800;
+const PAGE_SIZE = 12;
 
 function ProductSkeleton() {
     return (
@@ -27,68 +28,138 @@ interface ProductsProps {
     search?: string;
 }
 
+async function fetchPageWithRetry(
+    page: number,
+    cat: string | undefined,
+    srch: string | undefined,
+    signal: AbortSignal,
+): Promise<Awaited<ReturnType<typeof api.fetchProducts>>> {
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        if (attempt > 0) {
+            await new Promise(r => setTimeout(r, RETRY_BASE_MS * 2 ** (attempt - 1)));
+            if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        }
+        try {
+            return await api.fetchProducts({ page, limit: PAGE_SIZE, category: cat, search: srch });
+        } catch (err) {
+            if (attempt === MAX_RETRIES - 1) throw err;
+        }
+    }
+    throw new Error('Unreachable');
+}
+
 function Products({ category, search }: ProductsProps) {
     const [products, setProducts] = useState<Product[]>([]);
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [retrying, setRetrying] = useState(false);
     const abortRef = useRef<AbortController | null>(null);
+    const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-    const fetchWithRetry = useCallback(async (cat?: string, srch?: string) => {
+    // Reset & load page 1 whenever filters change
+    const loadFirstPage = useCallback(async (cat?: string, srch?: string) => {
         abortRef.current?.abort();
         const controller = new AbortController();
         abortRef.current = controller;
 
-        const hasStaleData = products.length > 0;
-        if (!hasStaleData) setLoading(true);
+        setLoading(true);
         setError(null);
         setRetrying(false);
+        setProducts([]);
+        setPage(1);
 
-        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        try {
+            setRetrying(false);
+            const response = await fetchPageWithRetry(1, cat, srch, controller.signal);
             if (controller.signal.aborted) return;
-
-            if (attempt > 0) {
-                setRetrying(true);
-                await new Promise(r => setTimeout(r, RETRY_BASE_MS * 2 ** (attempt - 1)));
-                if (controller.signal.aborted) return;
+            setProducts(response.data);
+            setTotalPages(response.totalPages);
+        } catch (err) {
+            if (controller.signal.aborted) return;
+            if ((err as DOMException).name !== 'AbortError') {
+                setError(String(err));
             }
-
-            try {
-                const response = await api.fetchProducts({
-                    page: 1, limit: 12, category: cat, search: srch,
-                });
-                if (controller.signal.aborted) return;
-                setProducts(response.data);
-                setError(null);
-                setRetrying(false);
+        } finally {
+            if (!controller.signal.aborted) {
                 setLoading(false);
-                return;
-            } catch (err) {
-                if (controller.signal.aborted) return;
-                if (attempt === MAX_RETRIES - 1) {
-                    setError(String(err));
-                    if (!hasStaleData) setProducts([]);
-                }
+                setRetrying(false);
             }
         }
-        setRetrying(false);
-        setLoading(false);
-    }, [products.length]);
+    }, []);
+
+    // Append next page (triggered by IntersectionObserver)
+    const loadNextPage = useCallback(async (nextPage: number, cat?: string, srch?: string) => {
+        abortRef.current?.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
+
+        setLoadingMore(true);
+        setError(null);
+
+        try {
+            const response = await fetchPageWithRetry(nextPage, cat, srch, controller.signal);
+            if (controller.signal.aborted) return;
+            setProducts(prev => [...prev, ...response.data]);
+            setPage(nextPage);
+            setTotalPages(response.totalPages);
+        } catch (err) {
+            if (controller.signal.aborted) return;
+            if ((err as DOMException).name !== 'AbortError') {
+                setError(String(err));
+            }
+        } finally {
+            if (!controller.signal.aborted) setLoadingMore(false);
+        }
+    }, []);
 
     useEffect(() => {
-        fetchWithRetry(category, search);
+        loadFirstPage(category, search);
         return () => abortRef.current?.abort();
     }, [category, search]);
 
-    const handleRetry = () => fetchWithRetry(category, search);
+    // IntersectionObserver watches the sentinel div at the bottom
+    useEffect(() => {
+        const sentinel = sentinelRef.current;
+        if (!sentinel) return;
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (
+                    entries[0].isIntersecting &&
+                    !loading &&
+                    !loadingMore &&
+                    !error &&
+                    page < totalPages
+                ) {
+                    loadNextPage(page + 1, category, search);
+                }
+            },
+            { rootMargin: '200px' },
+        );
+        observer.observe(sentinel);
+        return () => observer.disconnect();
+    }, [loading, loadingMore, error, page, totalPages, category, search, loadNextPage]);
+
+    const handleRetry = () => {
+        if (products.length === 0) {
+            loadFirstPage(category, search);
+        } else {
+            loadNextPage(page + 1, category, search);
+        }
+    };
 
     const hasProducts = products.length > 0;
     const isInitialLoad = loading && !hasProducts;
     const isEmpty = !loading && !error && !hasProducts;
+    const hasMore = page < totalPages;
 
     return (
         <div className="w-full p-6">
-            {/* Error banner — shown above stale data or standalone */}
+            {/* Error banner */}
             {error && (
                 <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 mb-6">
                     <AlertTriangle size={20} className="shrink-0 text-red-500" />
@@ -126,26 +197,41 @@ function Products({ category, search }: ProductsProps) {
                 </div>
             )}
 
-            {/* Skeleton grid (initial load only) */}
+            {/* Skeleton grid — initial load only */}
             {isInitialLoad && (
                 <div
                     className="grid w-full gap-6"
                     style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}
                 >
-                    {Array.from({ length: 12 }).map((_, i) => <ProductSkeleton key={i} />)}
+                    {Array.from({ length: PAGE_SIZE }).map((_, i) => <ProductSkeleton key={i} />)}
                 </div>
             )}
 
-            {/* Product grid — stays visible during re-fetches */}
+            {/* Product grid */}
             {hasProducts && (
                 <div
-                    className={`grid w-full gap-6 transition-opacity duration-300 ${loading ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}
+                    className="grid w-full gap-6"
                     style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))' }}
                 >
                     {products.map((product: Product) => (
                         <ProductDetails key={product.id} product={product} />
                     ))}
+
+                    {/* Inline skeletons for next page loading */}
+                    {loadingMore && Array.from({ length: PAGE_SIZE }).map((_, i) => (
+                        <ProductSkeleton key={`more-${i}`} />
+                    ))}
                 </div>
+            )}
+
+            {/* Sentinel — observed to trigger next page load */}
+            <div ref={sentinelRef} className="h-1" />
+
+            {/* End of results */}
+            {hasProducts && !hasMore && !loading && !loadingMore && (
+                <p className="mt-8 text-center text-sm text-gray-400">
+                    All {products.length} products loaded
+                </p>
             )}
         </div>
     );
