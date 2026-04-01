@@ -5,6 +5,7 @@ import type { Product } from '../types/product';
 import ProductDetails from './ProductDetails';
 import ProductSkeleton from './ProductSkeleton';
 import Empty from './Empty';
+import ErrorBanner from './ErrorBanner';
 
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 800;
@@ -43,7 +44,6 @@ function Products({ category, search }: ProductsProps) {
     const [loading, setLoading] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [retrying, setRetrying] = useState(false);
     const abortRef = useRef<AbortController | null>(null);
     const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -54,12 +54,10 @@ function Products({ category, search }: ProductsProps) {
 
         setLoading(true);
         setError(null);
-        setRetrying(false);
         setProducts([]);
         setPage(1);
 
         try {
-            setRetrying(false);
             const response = await fetchPageWithRetry(1, cat, srch, controller.signal);
             if (controller.signal.aborted) return;
             setProducts(response.data);
@@ -72,7 +70,6 @@ function Products({ category, search }: ProductsProps) {
         } finally {
             if (!controller.signal.aborted) {
                 setLoading(false);
-                setRetrying(false);
             }
         }
     }, []);
@@ -88,7 +85,6 @@ function Products({ category, search }: ProductsProps) {
         try {
             const response = await fetchPageWithRetry(nextPage, cat, srch, controller.signal);
             if (controller.signal.aborted) return;
-            console.log('response', response);
             setProducts(prev => [...prev, ...response.data]);
             setPage(nextPage);
             setTotalPages(response.totalPages);
@@ -107,7 +103,6 @@ function Products({ category, search }: ProductsProps) {
         return () => abortRef.current?.abort();
     }, [category, search]);
 
-    // IntersectionObserver watches the sentinel div at the bottom
     useEffect(() => {
         const sentinel = sentinelRef.current;
         if (!sentinel) return;
@@ -145,21 +140,8 @@ function Products({ category, search }: ProductsProps) {
 
     return (
         <div className="w-full p-6">
-            {/* Error banner */}
-            {error && (
-                <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 mb-6">
-                    <AlertTriangle size={20} className="shrink-0 text-red-500" />
-                    <p className="flex-1 text-sm text-red-700">
-                        Something went wrong.{hasProducts ? ' Showing previously loaded results.' : ''}
-                    </p>
-                    <button
-                        onClick={handleRetry}
-                        className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 transition-colors"
-                    >
-                        <RefreshCw size={14} />
-                        Retry
-                    </button>
-                </div>
+            {error && !hasProducts && (
+                <ErrorBanner handleRetry={handleRetry} />
             )}
 
             {isEmpty && (
@@ -183,8 +165,6 @@ function Products({ category, search }: ProductsProps) {
                     {products.map((product: Product) => (
                         <ProductDetails key={product.id} product={product} />
                     ))}
-
-                    {/* Inline skeletons for next page loading */}
                     {loadingMore && Array.from({ length: PAGE_SIZE }).map((_, i) => (
                         <ProductSkeleton key={`more-${i}`} />
                     ))}
@@ -192,6 +172,12 @@ function Products({ category, search }: ProductsProps) {
             )}
 
             <div ref={sentinelRef} className="h-1" />
+
+            {error && hasProducts && (
+
+                <ErrorBanner handleRetry={handleRetry} />
+
+            )}
 
             {hasProducts && !hasMore && !loading && !loadingMore && (
                 <p className="mt-8 text-center text-sm text-gray-400">
